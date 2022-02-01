@@ -22,7 +22,7 @@ namespace Wyrm
             var titlePageRequest = BrowsingContext.New(config)
                 .OpenAsync(bookUrl.ToString());
 
-            var outputLocation = "./book";
+            var outputLocation = args[1];
             
             if (Directory.Exists(outputLocation))
             {
