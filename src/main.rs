@@ -1,8 +1,6 @@
 use clap::Parser;
 use hyper::Client;
 use hyper_tls::HttpsConnector;
-use hyper::body::HttpBody as _;
-use tokio::io::{stdout, AsyncWriteExt as _};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -22,12 +20,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let uri = args.book_url.parse()?;
 
     // Await the response...
-    let mut resp = client.get(uri).await?;
+    let resp = client.get(uri).await?;
 
-    // Write HTML asynchronously to stdout...
-    while let Some(chunk) = resp.body_mut().data().await {
-        stdout().write_all(&chunk?).await?;
-    }
+    let body_as_bytes = hyper::body::to_bytes(resp.into_body()).await?;
+    let html = String::from_utf8(body_as_bytes.to_vec())?;
 
+    println!("{}", html);
+    
     Ok(())
 }
