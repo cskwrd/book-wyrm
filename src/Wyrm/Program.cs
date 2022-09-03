@@ -22,6 +22,11 @@ namespace Wyrm
             var titlePageRequest = BrowsingContext.New(config)
                 .OpenAsync(bookUrl.ToString());
 
+            if (args.Length < 2)
+            {
+                throw new ArgumentException("Output location (as 2nd arg) required");
+            }
+
             var outputLocation = args[1];
             
             if (Directory.Exists(outputLocation))
@@ -43,11 +48,35 @@ namespace Wyrm
             foreach (var anchorTag in chapterLinks)
             {
                 var chapterUrl = new Uri(bookUrl.Uri, anchorTag.Attributes["href"].Value);
+                
+                string filename = DeriveFilenameWithoutExtensionFromUri(chapterUrl);
+                
+                var filePath = Path.Combine(outputLocation, $"{filename}.html");
 
-                chapterScrapingTasks[chapterIndex++] = ScrapeChapterAsync(chapterUrl, Path.Combine(outputLocation, $"chapter-{chapterIndex}.html"), config);
+                chapterScrapingTasks[chapterIndex++] = ScrapeChapterAsync(chapterUrl, filePath, config);
             }
 
             Task.WaitAll(chapterScrapingTasks);
+        }
+
+        private static string DeriveFilenameWithoutExtensionFromUri(Uri chapterUrl)
+        {
+            var path = chapterUrl.AbsolutePath;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new Exception($"Unable to derive filename from: '{chapterUrl}'");
+            }
+
+            string chapterId = Path.GetFileName(Path.GetDirectoryName(path)) ?? throw new Exception($"Unable to derive chapter id from: '{chapterUrl}'");
+            string chapterName = Path.GetFileNameWithoutExtension(path) ?? throw new Exception($"Unable to derive chapter name from: '{chapterUrl}'");
+
+            // the url (path part) is built in this format: /fiction/{bookId}/{bookName}/chapter/{chapterId}/{chapterTitle}
+            // the idea is that using chapterId and chapterTitle it feels like we can make a reasonably safe filename from their combination
+
+            string filenameWithoutExtension = $"{chapterId}-{chapterName}"; // combining chapterId and chapterTitle to (hopefully) ensure a unique sorted list
+
+            return filenameWithoutExtension;
         }
 
         private static async Task ScrapeChapterAsync(Uri Link, string outputLocation, IConfiguration browserConfiguration)
@@ -63,7 +92,7 @@ namespace Wyrm
 
             var chapterContent = chapter.Body.QuerySelector("div.chapter-inner.chapter-content") ?? throw new Exception("Unable to locate chapter content.");
 
-            var authorNote = chapter.Body.QuerySelector("div.author-note");
+            var authorNote = chapter.Body.QuerySelector("div.author-note"); // TODO : RR allows the author to set a note before and after the chapter, independently. handle that accordingly.
 
             var chapterOutput = await GetNewHtmlPageAsync(browserConfiguration);
 
