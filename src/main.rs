@@ -1,67 +1,83 @@
-use clap::Parser;
-use futures::executor;
-use http::uri;
-use hyper::Client;
-use hyper_tls::HttpsConnector;
 use scraper::{Html, Selector};
+use structopt::StructOpt;
+use url::Url;
 
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
+#[derive(StructOpt, Debug)]
+/// Tool for archiving novels
+struct TypedArgs {
     /// The universal resource locator of book
     book_url: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let args = Args::parse();
-    
-    let https = HttpsConnector::new();
-    let client = Client::builder().build::<_, hyper::Body>(https);
+fn main() {
+    let args = TypedArgs::from_args();
 
-    let uri: uri::Uri = args.book_url.parse()?;
-    
-    let scheme = uri.scheme_str().unwrap_or("https");
-    let host = uri.host().unwrap_or_else(|| {
-        println!("!!! invalid hostname !!!");
+    let uri = Url::parse(&args.book_url).unwrap_or_else(|_| {
+        println!("!!! invalid book url !!!");
         std::process::exit(1);
     });
+
+    // let scheme = uri.scheme_str().unwrap_or("https");
+    // let host = uri.host().unwrap_or_else(|| {
+    //     println!("!!! invalid hostname !!!");
+    //     std::process::exit(1);
+    // });
     
-    let book_response = client.get(uri.clone()).await?;
+    let table_of_contents_response = get_html_doc(args.book_url);
 
-    let body_as_bytes = hyper::body::to_bytes(book_response.into_body()).await?;
-    let book_html = String::from_utf8(body_as_bytes.to_vec())?;
-    let document = Html::parse_document(book_html.as_str());
+    let table_of_contents = Html::parse_document(&table_of_contents_response);
 
-    let chapter_anchor_tag_selector = Selector::parse("table#chapters > tbody > tr.chapter-row > td:nth-child(1) > a").unwrap();
-    for anchor_tag in document.select(&chapter_anchor_tag_selector) {
+    let chapter_anchor_tag_selector = Selector::parse("table#chapters > tbody > tr.chapter-row > td:nth-child(1) > a").expect("Unable to parse chapter link selector");
+    for anchor_tag in table_of_contents.select(&chapter_anchor_tag_selector) {
         let href = anchor_tag.value().attr("href").unwrap();
 
-        let chapter_uri = uri::Builder::new()
-            .scheme(scheme)
-            .authority(host)
-            .path_and_query(href)
-            .build()
-            .unwrap();
-
-        let chapter_client = client.clone();
-        let chapter_html_future = async {
-            let chapter_response = chapter_client.get(chapter_uri).await.unwrap();
-
-            let chapter_as_bytes = hyper::body::to_bytes(chapter_response.into_body()).await.unwrap();
-            String::from_utf8(chapter_as_bytes.to_vec()).unwrap()
-        };
-        let chapter_html = executor::block_on(chapter_html_future);
-        let chapter_document = Html::parse_document(chapter_html.as_str());
-
-        let page_title_tag_selector = Selector::parse("title").unwrap();
-        let title_text = chapter_document.select(&page_title_tag_selector).next().unwrap().text().next().unwrap();
+        let chapter_url = uri.join(href).expect("Invalid chapter URL").to_string();
         
-        let chapter_content_selector = Selector::parse("div.chapter-inner.chapter-content").unwrap();
-        let chapter_content_html = chapter_document.select(&chapter_content_selector).next().unwrap().html();
-
-        println!("title = {}\ncontent = {}", title_text, chapter_content_html);
+        scrape_chapter(chapter_url);
     }
 
-    Ok(())
+    // println!("{}", table_of_contents_response);
+}
+
+fn scrape_chapter(chapter_url: String) {
+    let chapter_response = get_html_doc(chapter_url);
+    let chapter_document = Html::parse_document(&chapter_response);
+
+    let page_title_tag_selector = Selector::parse("title").expect("unable to parse page title tag selector");
+    let title_text = chapter_document.select(&page_title_tag_selector)
+        .next()
+        .expect("Unable to find title tag node")
+        .text()
+        .next()
+        .expect("Unable to find title tag");
+
+    let chapter_header_tag_selector = Selector::parse("div.fic-header h1.font-white").expect("unable to parse chapter header tag selector");
+    let chapter_header_text = chapter_document.select(&chapter_header_tag_selector)
+        .next()
+        .expect("Unable to find chapter header node")
+        .text()
+        .next()
+        .expect("Unable to find chapter header");
+    
+    let chapter_content_selector = Selector::parse("div.chapter-inner.chapter-content").expect("unable to parse chapter content selector");
+    let chapter_content_html = chapter_document.select(&chapter_content_selector)
+        .next()
+        .expect("Unable to find chapter content node")
+        .html();
+
+    println!("title = {}\nheader = {}\ncontent = {}", title_text, chapter_header_text, chapter_content_html);
+}
+
+/// Make request to web page and return HTML content
+fn get_html_doc(url: String) -> String {
+    // let user_agent = "My Rust Program 1.0";
+    let client = reqwest::blocking::Client::new();
+
+    client.get(url)
+        // .header(USER_AGENT, user_agent)
+        // .header(api_auth_header, api_auth_token)
+        .send()
+        .expect("Error making request") 
+        .text()
+        .expect("Invalid response")
 }
