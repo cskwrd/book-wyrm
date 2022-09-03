@@ -31,7 +31,7 @@ namespace Wyrm
 
             Directory.CreateDirectory(outputLocation);
 
-            using var titlePage = await titlePageRequest.ConfigureAwait(false);
+            using var titlePage = await titlePageRequest;
 
             var bookTitle = titlePage.QuerySelector("div.fic-header h1.font-white")?.TextContent.Trim() ?? throw new Exception("Unable to locate book title.");
 
@@ -55,8 +55,7 @@ namespace Wyrm
             var chapterUrl = Link.ToString();
 
             using var chapter = await BrowsingContext.New(browserConfiguration)
-                .OpenAsync(chapterUrl)
-                .ConfigureAwait(false);
+                .OpenAsync(chapterUrl);
 
             var chapterTitle = chapter.Head.QuerySelector("title") ?? throw new Exception("Unable to locate chapter title.");
 
@@ -66,7 +65,7 @@ namespace Wyrm
 
             var authorNote = chapter.Body.QuerySelector("div.author-note");
 
-            var chapterOutput = await GetNewHtmlPageAsync(browserConfiguration).ConfigureAwait(false);
+            var chapterOutput = await GetNewHtmlPageAsync(browserConfiguration);
 
             var chapterCharSet = chapterOutput.CreateElement("meta");
             chapterCharSet.SetAttribute("charset", "utf-8");
